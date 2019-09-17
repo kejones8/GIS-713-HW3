@@ -1,0 +1,311 @@
+---
+title: "GIS 713 HW 3"
+author: "KJ"
+date: "9/19/2019"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(rgdal)
+library(spatstat)
+library(RColorBrewer)
+library(maptools)
+
+# setwd("C:\\Users\\kejones8\\OneDrive - North Carolina State University\\F2019 - Classes\\GIS 713\\HW\\GIS-HW-3\\")
+
+pnts<-readOGR(dsn=".\\HW3Data",layer="paracou")
+window<-readOGR(dsn=".\\HW3Data",layer="paracou_window")
+
+proj4string(pnts)<-CRS("+init=epsg:32622")
+pnts_proj <- spTransform(pnts, CRS("+init=epsg:32622"))
+
+proj4string(window)<-CRS("+init=epsg:32622")
+window_proj <- spTransform(window, CRS("+init=epsg:32622"))
+
+#add dbh as a field, calculated using basal area
+pnts_proj$dbh<-sqrt(pnts_proj$BasalArea/pi)*2
+
+#what species are included
+unique(pnts_proj$Species)
+
+#break out the coords into x and y
+x<-pnts_proj@coords[,1]
+y<-pnts_proj@coords[,2]
+pnts_proj$x<-x
+pnts_proj$y<-y
+
+# a function to assign color, keeps code cleaner while plotting
+color_pallete_function <- colorRampPalette(
+  colors = c("grey", "purple", "orange"),
+)
+
+#assign unique keys to each species
+num_colors <- nlevels(pnts_proj$Species)
+#assign colors to those keys using the function
+pnts_color_colors <- color_pallete_function(num_colors)
+
+cex_brks <- quantile(pnts_proj$dbh, c(0.3,.5,.7,.9))
+cex_size <- c(.4,.75,1.25,2.5) 
+cex <- rep(NA, length(pnts_proj$dbh))
+for (i in 1:4) {
+    cex[is.na(cex) & pnts_proj$dbh<=cex_brks[[i]]] <- cex_size[[i]]
+}
+
+#create some extra room in the plot for the legend
+par(mar=c(5.1, 4.1, 4.1, 10),pin=c(4,3.5), xpd=TRUE)
+#plot(window_proj)
+#points(pnts_proj$x,pnts_proj$y)
+#plot scaling by dbh
+plot(window_proj
+  # xlab = "X",
+  # ylab = "Y",
+  # pch = 21, # solid dots increase the readability of this data plot
+  # col = pnts_color_colors[pnts_proj$Species],
+  # cex=pnts_proj$dbh/10,
+)
+
+points(pnts_proj$x,pnts_proj$y,pch=21,col=pnts_color_colors[pnts_proj$Species],cex=cex,lwd=.25)
+axis(side=1,line=0,at=c(300,350,400,450,500))
+axis(side=2,line=-2.5)
+
+
+
+#add legend
+legend(
+  x ="topright",
+  legend = paste(levels(pnts_proj$Species)), # for readability of legend
+  col = pnts_color_colors,
+  pch = 15, # same as pch=20, just smaller
+  cex = 1, # scale the legend to look attractively sized
+  inset=c(-0.3,0),
+  box.col = "white",
+  title="Species"
+)
+
+rnd_cex_brks<-round(cex_brks,2)
+
+legend("bottomright", legend=c(paste("<",rnd_cex_brks[1],"cm"),paste(rnd_cex_brks[1],"to",rnd_cex_brks[2],"cm"),paste(rnd_cex_brks[2]+.01, "to",rnd_cex_brks[3],"cm"),paste(rnd_cex_brks[3]+.01,"cm",">")), pt.cex=cex_size, pch=1,col="black",inset=c(-0.32,0.2),box.col="white",title="DBH",cex=1)
+
+```
+
+
+```{r}
+
+tree_ppp<-ppp(pnts_proj$x,pnts_proj$y, as.owin(window_proj))
+
+#plot(Gest(tree_ppp))
+G_all_env <- envelope(tree_ppp, fun=Gest,nrank=2,nsim=999,verbose=FALSE)
+plot(G_all_env)
+
+
+```
+
+
+```{r}
+
+##add map of v.am
+v.am<-pnts_proj[pnts_proj$Species=="V. Americana",]
+v.am.ppp<-ppp(v.am$x,v.am$y,as.owin(window_proj))
+#plot(Gest(v.am.ppp))
+G_vam_env <- envelope(v.am.ppp, fun=Gest,nrank=2,nsim=999,verbose=FALSE)
+plot(G_vam_env)
+
+```
+
+
+```{r}
+
+###add map of q.r 
+q.r<-pnts_proj[pnts_proj$Species=="Q. Rosea",]
+q.r.ppp<-ppp(q.r$x,q.r$y,as.owin(window_proj))
+#plot(Gest(q.r.ppp))
+G_qr_env<-envelope(q.r.ppp, fun=Gest,nrank=2,nsim=999,verbose=FALSE)
+plot(G_qr_env)
+
+```
+
+```{r}
+set.seed(42)
+K_all_env<-envelope(tree_ppp, fun=Kest,nsim=99,verbose=FALSE)
+#plot(K_all_env)
+
+
+k_all_env1<-K_all_env
+
+K_all_env$obs <- sqrt(K_all_env$obs/pi) - K_all_env$r
+K_all_env$hi <- sqrt(K_all_env$hi/pi) - K_all_env$r
+K_all_env$lo <- sqrt(K_all_env$lo/pi) - K_all_env$r
+K_all_env$theo <- sqrt(K_all_env$theo/pi) - K_all_env$r
+ylim <- range(c(K_all_env$obs, K_all_env$hi, K_all_env$lo, K_all_env$theo))
+
+
+###make legend
+plot(K_all_env$r, K_all_env$theo, ylim = ylim, type = "l", col = "red", lty = 4, main = "Sim Env w/ envelope()",
+xlab = expression(italic("r")), ylab = expression(italic("L(r)")))
+
+poly_x <- c(K_all_env$r, rev(K_all_env$r))
+poly_y <- c(K_all_env$lo, rev(K_all_env$hi))
+polygon(x = poly_x, y = poly_y, col = "grey", border = NA)
+
+
+# points(K_all_env$r, K_all_env$lo, type = "l", col = 2, lty = 3)
+#points(K_all_env$r, K_all_env$hi, type = "l", col = 2, lty = 3)
+points(K_all_env$r, K_all_env$theo, ylim = ylim, type = "l", col = "red")
+points(K_all_env$r, K_all_env$obs, type = "l", col = 1, lty = 1)
+```
+```{r}
+K_vam_env <- envelope(v.am.ppp, fun=Kest,nrank=2,nsim=999,verbose=FALSE)
+
+k_vam_env1<-K_vam_env
+
+k_vam_env1$obs <- sqrt(k_vam_env1$obs/pi) - k_vam_env1$r
+k_vam_env1$hi <- sqrt(k_vam_env1$hi/pi) - k_vam_env1$r
+k_vam_env1$lo <- sqrt(k_vam_env1$lo/pi) - k_vam_env1$r
+k_vam_env1$theo <- sqrt(k_vam_env1$theo/pi) - k_vam_env1$r
+ylim <- range(c(k_vam_env1$obs, k_vam_env1$hi, k_vam_env1$lo, k_vam_env1$theo))
+
+
+###make legend
+plot(k_vam_env1$r, k_vam_env1$theo, ylim = ylim, type = "l", col = "red", lty = 4, main = "Sim Env w/ envelope()",
+xlab = expression(italic("r")), ylab = expression(italic("L(r)")))
+
+poly_x <- c(k_vam_env1$r, rev(k_vam_env1$r))
+poly_y <- c(k_vam_env1$lo, rev(k_vam_env1$hi))
+polygon(x = poly_x, y = poly_y, col = "grey", border = NA)
+
+
+# points(K_all_env$r, K_all_env$lo, type = "l", col = 2, lty = 3)
+#points(K_all_env$r, K_all_env$hi, type = "l", col = 2, lty = 3)
+points(k_vam_env1$r, k_vam_env1$theo, ylim = ylim, type = "l", col = "red")
+points(k_vam_env1$r, k_vam_env1$obs, type = "l", col = 1, lty = 1)
+
+
+```
+
+```{r}
+K_qr_env <- envelope(q.r.ppp, fun=Kest,nrank=2,nsim=999,verbose=FALSE)
+
+K_qr_env1<-K_qr_env
+
+K_qr_env1$obs <- sqrt(K_qr_env1$obs/pi) - K_qr_env1$r
+K_qr_env1$hi <- sqrt(K_qr_env1$hi/pi) - K_qr_env1$r
+K_qr_env1$lo <- sqrt(K_qr_env1$lo/pi) - K_qr_env1$r
+K_qr_env1$theo <- sqrt(K_qr_env1$theo/pi) - K_qr_env1$r
+ylim <- range(c(K_qr_env1$obs, K_qr_env1$hi, K_qr_env1$lo, K_qr_env1$theo))
+
+
+###make legend
+plot(K_qr_env1$r, K_qr_env1$theo, ylim = ylim, type = "l", col = "red", lty = 4, main = "Sim Env w/ envelope()",
+xlab = expression(italic("r")), ylab = expression(italic("L(r)")))
+
+poly_x <- c(K_qr_env1$r, rev(K_qr_env1$r))
+poly_y <- c(K_qr_env1$lo, rev(K_qr_env1$hi))
+polygon(x = poly_x, y = poly_y, col = "grey", border = NA)
+
+
+# points(K_all_env$r, K_all_env$lo, type = "l", col = 2, lty = 3)
+#points(K_all_env$r, K_all_env$hi, type = "l", col = 2, lty = 3)
+points(K_qr_env1$r, K_qr_env1$theo, ylim = ylim, type = "l", col = "red")
+points(K_qr_env1$r, K_qr_env1$obs, type = "l", col = 1, lty = 1)
+
+```
+
+```{r}
+
+spec_tree_ppp<- ppp(pnts_proj$x,pnts_proj$y, as.owin(window_proj), marks=pnts_proj$Species)
+
+Kmulti_qr_vam <- Kmulti(spec_tree_ppp, marks("Q. Rosea") , marks("V. Americana"))
+Kmulti_qr_vam_env <- envelope(spec_tree_ppp, fun=Kmulti, I = marks("Q. Rosea") , J = marks("V. Americana"))
+
+Kmulti_qr_vam_env1<-Kmulti_qr_vam_env
+
+#plot(Kmulti_qr_vam_env)
+
+# Kmulti_qr_vam_env1$obs <- sqrt(Kmulti_qr_vam_env1$obs/pi) - Kmulti_qr_vam_env1$r
+# Kmulti_qr_vam_env1$hi <- sqrt(Kmulti_qr_vam_env1$hi/pi) - Kmulti_qr_vam_env1$r
+# Kmulti_qr_vam_env1$lo <- sqrt(Kmulti_qr_vam_env1$lo/pi) - Kmulti_qr_vam_env1$r
+# Kmulti_qr_vam_env1$theo <- sqrt(Kmulti_qr_vam_env1$theo/pi) - Kmulti_qr_vam_env1$r
+# ylim <- range(c(Kmulti_qr_vam_env1$obs, Kmulti_qr_vam_env1$hi, Kmulti_qr_vam_env1$lo, Kmulti_qr_vam_env1$theo))
+# 
+# 
+# ###make legend
+# plot(Kmulti_qr_vam_env1$r, Kmulti_qr_vam_env1$theo, ylim = ylim, type = "l", col = "red", lty = 4, main = "Sim Env w/ envelope()",
+# xlab = expression(italic("r")), ylab = expression(italic("L(r)")))
+# 
+# poly_x <- c(Kmulti_qr_vam_env1$r, rev(Kmulti_qr_vam_env1$r))
+# poly_y <- c(Kmulti_qr_vam_env1$lo, rev(Kmulti_qr_vam_env1$hi))
+# polygon(x = poly_x, y = poly_y, col = "grey", border = NA)
+# 
+# 
+# # points(K_all_env$r, K_all_env$lo, type = "l", col = 2, lty = 3)
+# #points(K_all_env$r, K_all_env$hi, type = "l", col = 2, lty = 3)
+# points(Kmulti_qr_vam_env1$r, Kmulti_qr_vam_env1$theo, ylim = ylim, type = "l", col = "red")
+# points(Kmulti_qr_vam_env1$r, Kmulti_qr_vam_env1$obs, type = "l", col = 1, lty = 1)
+
+poly_x <- c(Kmulti_qr_vam_env1$r, rev(Kmulti_qr_vam_env1$r))
+poly_y <- c(sqrt(Kmulti_qr_vam_env1$lo/pi) - Kmulti_qr_vam_env1$r, rev(sqrt(Kmulti_qr_vam_env1$hi/pi) -
+Kmulti_qr_vam_env1$r))
+plot(Kmulti_qr_vam_env1$r, Kmulti_qr_vam_env1$r, type = "n", ylim = range(c(sqrt(Kmulti_qr_vam_env1$border/pi) -
+Kmulti_qr_vam_env1$r, poly_y)), xlab = expression(italic("r")), ylab = expression(italic("L(r)")))
+polygon(x = poly_x, y = poly_y, col = "grey", border = NA)
+points(Kmulti_qr_vam$r, sqrt(Kmulti_qr_vam$border/pi) - Kmulti_qr_vam$r,
+type = "l")
+title("QR:VAM")
+
+```
+```{r}
+Kmulti_vam_qr <- Kmulti(spec_tree_ppp, marks("V. Americana") , marks("Q. Rosea"))
+Kmulti_vam_qr_env <- envelope(spec_tree_ppp, fun=Kmulti, I = marks("V. Americana") , J = marks("Q. Rosea"))
+
+Kmulti_vam_qr_env1<-Kmulti_vam_qr_env
+
+#plot(Kmulti_qr_vam_env)
+
+# Kmulti_qr_vam_env1$obs <- sqrt(Kmulti_qr_vam_env1$obs/pi) - Kmulti_qr_vam_env1$r
+# Kmulti_qr_vam_env1$hi <- sqrt(Kmulti_qr_vam_env1$hi/pi) - Kmulti_qr_vam_env1$r
+# Kmulti_qr_vam_env1$lo <- sqrt(Kmulti_qr_vam_env1$lo/pi) - Kmulti_qr_vam_env1$r
+# Kmulti_qr_vam_env1$theo <- sqrt(Kmulti_qr_vam_env1$theo/pi) - Kmulti_qr_vam_env1$r
+# ylim <- range(c(Kmulti_qr_vam_env1$obs, Kmulti_qr_vam_env1$hi, Kmulti_qr_vam_env1$lo, Kmulti_qr_vam_env1$theo))
+# 
+# 
+# ###make legend
+# plot(Kmulti_qr_vam_env1$r, Kmulti_qr_vam_env1$theo, ylim = ylim, type = "l", col = "red", lty = 4, main = "Sim Env w/ envelope()",
+# xlab = expression(italic("r")), ylab = expression(italic("L(r)")))
+# 
+# poly_x <- c(Kmulti_qr_vam_env1$r, rev(Kmulti_qr_vam_env1$r))
+# poly_y <- c(Kmulti_qr_vam_env1$lo, rev(Kmulti_qr_vam_env1$hi))
+# polygon(x = poly_x, y = poly_y, col = "grey", border = NA)
+# 
+# 
+# # points(K_all_env$r, K_all_env$lo, type = "l", col = 2, lty = 3)
+# #points(K_all_env$r, K_all_env$hi, type = "l", col = 2, lty = 3)
+# points(Kmulti_qr_vam_env1$r, Kmulti_qr_vam_env1$theo, ylim = ylim, type = "l", col = "red")
+# points(Kmulti_qr_vam_env1$r, Kmulti_qr_vam_env1$obs, type = "l", col = 1, lty = 1)
+
+
+poly_x <- c(Kmulti_vam_qr_env1$r, rev(Kmulti_vam_qr_env1$r))
+poly_y <- c(sqrt(Kmulti_vam_qr_env1$lo/pi) - Kmulti_vam_qr_env1$r, rev(sqrt(Kmulti_vam_qr_env1$hi/pi) -
+Kmulti_vam_qr_env1$r))
+plot(Kmulti_vam_qr_env1$r, Kmulti_vam_qr_env1$r, type = "n", ylim = range(c(sqrt(Kmulti_vam_qr_env1$border/pi) -
+Kmulti_vam_qr$r, poly_y)), xlab = expression(italic("r")), ylab = expression(italic("L(r)")))
+polygon(x = poly_x, y = poly_y, col = "grey", border = NA)
+points(Kmulti_vam_qr$r, sqrt(Kmulti_vam_qr$border/pi) - Kmulti_vam_qr$r,
+type = "l")
+title("VAM:QR")
+```
+```{r}
+
+dbh_tree_ppp<- ppp(pnts_proj$x,pnts_proj$y, as.owin(window_proj), marks=pnts_proj$dbh)
+
+Kmulti_sm_lg <- Kmulti(dbh_tree_ppp, marks(dbh_tree_ppp)<= 14, marks(dbh_tree_ppp)>=90)
+
+Kmulti_vam_qr_env <- envelope(dbh_tree_ppp, fun=Kmulti, I = marks("V. Americana") , J = marks("Q. Rosea"))
+
+Kmulti_vam_qr_env1<-Kmulti_vam_qr_env
+
+
+
+```
+
